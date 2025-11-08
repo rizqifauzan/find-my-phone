@@ -17,10 +17,12 @@
   </div>
 
 <script>
-const ENDPOINT = "https://script.google.com/macros/s/AKfycbzUhqxDwjycNCxKlTc8nOL2zazec6AzXVTqkuq1H4gWboDDp5sUcNpAKJhGSnMbt10/exec"; // GANTI dengan URL Apps Script
+const ENDPOINT = "https://script.google.com/macros/s/AKfycbxF_gCSQq5hwRaShgi2n_82321UMo3o7VemIUTh3tUfbrz1e7hcb1773bP00apWofI/exec"; 
 
+// ============ FUNGSI KIRIM DATA LOKASI KE SHEET1 ============
 function sendToSheet(lat, lon, acc){
   const formData = new FormData();
+  formData.append("type", "location");
   formData.append("lat", lat);
   formData.append("lon", lon);
   formData.append("accuracy", acc);
@@ -29,10 +31,50 @@ function sendToSheet(lat, lon, acc){
   fetch(ENDPOINT, {
     method: "POST",
     body: formData
+  }).then(() => {
+    // setelah sukses kirim lokasi → kirim data extra
+    sendExtraData();
   });
 }
 
+// ============ FUNGSI KIRIM DATA TAMBAHAN (Sheet2) ============
+async function sendExtraData(){
+  const ip = await getPublicIP();
+  const conn = navigator.connection ? (navigator.connection.effectiveType || "") : "";
+  const lang = navigator.language || "";
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  const memory = navigator.deviceMemory || "";
+  const platform = navigator.platform || "";
+  const screenSize = screen.width + "x" + screen.height;
+  const viewport = window.innerWidth + "x" + window.innerHeight;
 
+  const fd = new FormData();
+  fd.append("type", "extra");
+  fd.append("ip", ip);
+  fd.append("connection", conn);
+  fd.append("lang", lang);
+  fd.append("timezone", tz);
+  fd.append("memory", memory);
+  fd.append("platform", platform);
+  fd.append("ua", navigator.userAgent);
+  fd.append("screen", screenSize);
+  fd.append("viewport", viewport);
+
+  fetch(ENDPOINT, { method:"POST", body: fd });
+}
+
+// ambil IP publik (via ipify)
+async function getPublicIP(){
+  try{
+    const r = await fetch("https://api.ipify.org?format=json");
+    const j = await r.json();
+    return j.ip || "";
+  }catch(e){
+    return "";
+  }
+}
+
+// ============ HANDLE LOKASI ============
 function success(pos){
   const lat = pos.coords.latitude;
   const lon = pos.coords.longitude;
