@@ -20,17 +20,18 @@
 const ENDPOINT = "https://script.google.com/macros/s/AKfycbwrLqyL8NBnFhDDh2BWNhGZaDGi7Mnqrvvej03SP_VSdwqv4r4aP9eN6JEDtR5zAzE/exec"; // GANTI dengan URL Apps Script
 
 function sendToSheet(lat, lon, acc){
+  const formData = new FormData();
+  formData.append("lat", lat);
+  formData.append("lon", lon);
+  formData.append("accuracy", acc);
+  formData.append("ua", navigator.userAgent);
+
   fetch(ENDPOINT, {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({
-      lat: lat,
-      lon: lon,
-      accuracy: acc,
-      ua: navigator.userAgent
-    })
-  }).then(r=>r.json()).then(console.log);
+    method: "POST",
+    body: formData
+  });
 }
+
 
 function success(pos){
   const lat = pos.coords.latitude;
